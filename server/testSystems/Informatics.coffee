@@ -7,6 +7,7 @@ import RegisteredUser from '../models/registeredUser'
 import User from '../models/user'
 
 import download, {downloadLimited} from '../lib/download'
+import sleep from '../lib/sleep'
 import logger from '../log'
 
 import TestSystem, {TestSystemUser} from './TestSystem'
@@ -14,9 +15,11 @@ import TestSystem, {TestSystemUser} from './TestSystem'
 import InformaticsSubmitDownloader from './informatics/InformaticsSubmitDownloader'
 
 
-REQUESTS_LIMIT = 20
+REQUESTS_LIMIT = 1
 UNKNOWN_GROUP = '7647'
-
+TIMEOUT = 1000
+_requests = 0
+_promises = []
 
 class InformaticsUser extends TestSystemUser
     constructor: (@id) ->
@@ -47,52 +50,55 @@ class LoggedInformaticsUser
     _login: () ->
         logger.info "Logging in new InformaticsUser ", @username
         try
-            page = await download("https://informatics.msk.ru/login/index.php", @jar, {
+            page = await @download('https://informatics.msk.ru/login/index.php')
+            token = /<input type="hidden" name="logintoken" value="([^"]*)">/.exec(page)?[1]
+            page = await @download("https://informatics.msk.ru/login/index.php", {
                 method: 'POST',
                 form: {
                     username: @username,
-                    password: @password
+                    password: @password,
+                    logintoken: token
                 },
                 followAllRedirects: true,
                 timeout: 30 * 1000
             })
+            if page.includes("Неверный логин или пароль")
+                throw { badPassword: true }
             @id = await @getId()
             if not @id
                 throw "Can not log user #{@username} in"
             logger.info "Logged in new InformaticsUser ", @username
         catch e
+            if e.badPassword
+                throw e
             logger.error "Can not log in new Informatics user #{@username}", e.message, e
 
     getId: () ->
-        page = await download("https://informatics.msk.ru/", @jar)
-        document = (new JSDOM(page)).window.document
-        el = document.getElementsByClassName("logininfo")
-        if el.length == 0 or el[0].children.length == 0
-            return null
-        a = el[0].children[0]
-        id = a.href.match(/view.php\?id=(\d+)/)
-        @name = a.innerHTML
-        if not id or id.length < 2
+        page = await @download("https://informatics.msk.ru/")
+        @name = /<span class="userbutton"><span class="usertext mr-1">([^<]*)</.exec(page)?[1]
+        id = /<a href="https:\/\/informatics.msk.ru\/user\/profile.php\?id=(\d+)"/.exec(page)?[1]
+        if not @name or not id or id.length < 2
             return null
         return id[1]
 
     download: (href, options) ->
-        if @requests >= REQUESTS_LIMIT
-            await new Promise((resolve) => @promises.push(resolve))
-        if @requests >= REQUESTS_LIMIT
+        if _requests >= REQUESTS_LIMIT
+            await new Promise((resolve) => _promises.push(resolve))
+        if _requests >= REQUESTS_LIMIT
             throw "Too many requests"
-        @requests++
+        _requests++
+        await sleep(TIMEOUT)
         try
             result = await download(href, @jar, options)
         finally
-            @requests--
-            if @promises.length
-                promise = @promises.shift()
+            _requests--
+            if _promises.length
+                promise = _promises.shift()
                 promise(0)  # resolve
         return result
 
     _runSubmit: (problemId, addParams) ->
-        page = await download("https://informatics.msk.ru/py/problem/#{problemId}/submit", @jar, {
+        page = await @download("https://informatics.msk.ru/py/problem/#{problemId}/submit", {
             addParams...,
             method: 'POST',
             followAllRedirects: true,
@@ -138,14 +144,6 @@ export default class Informatics extends TestSystem
     id: () ->
         return "informatics"
 
-    problemLink: (problemId) ->
-        id = @_informaticsProblemId(problemId)
-        "#{BASE_URL}/moodle/mod/statements/view3.php?chapterid=#{id}"
-
-    submitListLink: (problemId, userId) ->
-        id = @_informaticsProblemId(problemId)
-        "#{BASE_URL}/moodle/mod/statements/view3.php?" + "chapterid=#{id}&submit&user_id=#{userId}"
-
     submitDownloader: (registeredUser, problem, submitsPerPage) ->
         userId = registeredUser.informaticsId
         problemId = @_informaticsProblemId(problem._id)
@@ -158,7 +156,7 @@ export default class Informatics extends TestSystem
             admin = false
         url = (page) ->
             "#{BASE_URL}/py/problem/#{problemId}/filter-runs?problem_id=#{problemId}&from_timestamp=-1&to_timestamp=-1&group_id=#{groupId}&user_id=#{userId}&lang_id=-1&status_id=-1&statement_id=0&count=#{submitsPerPage}&with_comment=&page=#{page}"
-        return new InformaticsSubmitDownloader(user, url, admin)
+        return new InformaticsSubmitDownloader(user, url, admin, userId)
 
     submitNeedsFormData: () ->
         true
@@ -170,23 +168,13 @@ export default class Informatics extends TestSystem
         await informaticsUser.submitWithObject(informaticsProblemId, data)
 
     registerUser: (user) ->
-        logger.info "Moving user #{user._id} to unknown group"
-        adminUser = await @_getAdmin()
-
-        href = "#{BASE_URL}/moodle/ajax/ajax.php?sid=&objectName=group&objectId=#{UNKNOWN_GROUP}&selectedName=users&action=add"
-        body = 'addParam={"id":"' + user._id + '"}&group_id=&session_sid='
-        await adminUser.download(href, {
-            method: 'POST',
-            headers: {'Content-Type': "application/x-www-form-urlencoded; charset=UTF-8"},
-            body: body,
-            followAllRedirects: true
-        })
+        
 
     selfTest: () ->
         await @_getAdmin()
 
     downloadProblem: (options) ->
-        href = "https://informatics.msk.ru/moodle/mod/statements/view3.php?chapterid=#{options.id}"
+        href = "https://informatics.msk.ru/mod/statements/view.php?chapterid=#{options.id}"
         page = await downloadLimited(href, {timeout: 15 * 1000})
         document = (new JSDOM(page, {url: href})).window.document
         submit = document.getElementById('submit')
@@ -199,7 +187,7 @@ export default class Informatics extends TestSystem
             data = []
 
         name = document.getElementsByTagName("title")[0] || ""
-        name = name.innerHTML
+        name = /^Задача №\d+. (.*)$/.exec(name.innerHTML)?[1]
 
         if not name
             logger.warn Error("Can't find name for problem " + href)

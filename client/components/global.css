@@ -1,7 +1,12 @@
+.mainTable_div {
+    overflow: auto;
+}
 .mainTable {
     border-left:1px solid black;
     border-top:1px solid black;
     margin-bottom: 10px;
+    white-space: nowrap;
+    border-collapse: separate;
 }
 .mainTable_td {
     border-bottom:1px solid black;
@@ -10,8 +15,16 @@
     text-align: center;
     min-width: 3ex;
 }
+.mainTable_th {
+    border-bottom:1px solid black;
+    border-right:1px solid black;
+    position: sticky;
+    left: 0;
+    background: white;
+}
 .mainTable_user {
     text-align: left;
+    z-index: 1;
 }
 .border {
     background:black;

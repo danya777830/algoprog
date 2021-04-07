@@ -5,3 +5,6 @@ log
 v2
 *.orig
 run_bearer.sh
+t
+scripts/start.sh
+scripts/log*

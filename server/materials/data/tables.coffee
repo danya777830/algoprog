@@ -31,20 +31,21 @@ getTreeTitle = (table) ->
     else
         return "Уровни " + tables.join(", ")
 
+export allTables = ["1А,1Б", "1В,1Г", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "main", "reg", "roi"]
+
 export default tables = () ->
     groups =
         lic40: "Лицей 40",
         lic87: "Лицей 87",
         zaoch: "Нижегородские школьники",
-        vega: "Вега",
-        notnnov: "Остальные школьники"
+        notnnov: "Остальные школьники",
         stud: "Студенты и старше"
-    allTables = ["1А,1Б", "1В,1Г", "2", "3", "4", "5", "6", "7", "8", "9", "main", "reg", "roi", "byWeek"]
+        sbory: "Сборы"
 
     materials = []
     for group, groupName of groups
         thisMaterials = []
-        for t in allTables
+        for t in [allTables... , "byWeek"]
             thisMaterials.push(table(group, t, getTableTitle(t), getTreeTitle(t)))
 
         material = simpleLevel("tables:#{group}", groupName, thisMaterials)

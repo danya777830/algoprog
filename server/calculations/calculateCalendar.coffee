@@ -4,8 +4,9 @@ import Submit from '../models/submit'
 import logger from '../log'
 
 export default calculateCalendar = (user) ->
+    start = new Date()
     logger.info "updating calendar for user ", user
-    submits = await Submit.findByUser(user)
+    submits = await Submit.findByUserWithFindMistakeAny(user)
     events = {}
     previousYear = (new Date()).getFullYear() - 1
     for submit in submits
@@ -18,4 +19,4 @@ export default calculateCalendar = (user) ->
             events[short] = if short of events then events[short] + 1 else 1
     calendar = new Calendar {_id: user, byDay : events}
     await calendar.upsert()
-    logger.info "updated calendar for user ", user
+    logger.info "updated calendar for user ", user, " spent time ", (new Date()) - start

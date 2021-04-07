@@ -22,7 +22,7 @@ import ThemeCss from '../../client/components/ThemeCss'
 
 import Cookies from 'universal-cookie'
 
-renderFullPage = (html, data, helmet) ->
+renderFullPage = (html, data, helmet, linkClientJsCss) ->
     return '
         <html>
         <head>
@@ -30,9 +30,10 @@ renderFullPage = (html, data, helmet) ->
             <meta name="yandex-verification" content="4f0059cd93dfb218" />
             ' + helmet.title + '
             <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css"/>
-            <link rel="stylesheet" href="/bundle.css"/>
+            <link rel="stylesheet" href="/server.bundle.css"/>
+            ' + linkClientJsCss.client.css.map((css) => '<link rel="stylesheet" href="/' + css + '"/>').join('') + '
             <link rel="stylesheet" href="/react-diff-view.css"/>
-            <link rel="stylesheet" href="/informatics.css"/>
+            <link rel="stylesheet" href="/testsystems.css"/>
             <link rel="stylesheet" href="/highlight.css"/>
             <link rel="stylesheet" href="/main.css"/>
             <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -44,8 +45,8 @@ renderFullPage = (html, data, helmet) ->
                     extensions: ["tex2jax.js"],
                     jax: ["input/TeX", "output/HTML-CSS"],
                     tex2jax: {
-                        inlineMath: [ ["$","$"] ],
-                        displayMath: [ ["$$","$$"] ],
+                        inlineMath: [ ["$","$"], ["\\\\(", "\\\\)"] ],
+                        displayMath: [ ["$$","$$"], ["\\\\[", "\\\\]"] ],
                         processEscapes: true
                     },
                     "HTML-CSS": { availableFonts: ["TeX"] }
@@ -57,7 +58,7 @@ renderFullPage = (html, data, helmet) ->
         </head>
         <body>
             <div id="main" style="min-width: 100%; min-height: 100%">' + html + '</div>
-            <script src="/bundle.js" type="text/javascript"></script>
+            ' + linkClientJsCss.client.js.map((js) => '<script src="/' + js + '" type="text/javascript"></script>').join('') + '
             <!-- Yandex.Metrika counter -->
             <script type="text/javascript" >
                 (function (d, w, c) {
@@ -98,11 +99,16 @@ renderFullPage = (html, data, helmet) ->
     else
         return "light"
 
-export default renderOnServer = (req, res, next) =>
+export default renderOnServer = (linkClientJsCss) => (req, res, next) =>
+    # https://github.com/HenningM/express-ws/issues/64
+    if req.path.includes(".websocket")
+        console.log "Ignoring websocket path in renderOnServer: ", req.path
+        next()
+        return
     try
         initialState = 
             data: [
-                {data: req.user
+                {data: req.user || {}
                 success: true
                 updateTime: new Date()
                 url: "me"},
@@ -113,6 +119,7 @@ export default renderOnServer = (req, res, next) =>
             ],
             clientCookie: req.headers.cookie,
             theme: defaultTheme(req.headers.cookie)
+            needDataPromises: true
         store = createStore(initialState)
 
         component = undefined
@@ -143,6 +150,7 @@ export default renderOnServer = (req, res, next) =>
 
         html = renderToString(wrappedElement)
         await awaitAll(store.getState().dataPromises)
+        store.getState().needDataPromises = false
 
         wrappedElement = <Provider store={store}>
                 <div>
@@ -169,4 +177,4 @@ export default renderOnServer = (req, res, next) =>
     delete state.dataPromises
     delete state.clientCookie
 
-    res.set('Content-Type', 'text/html').status(200).end(renderFullPage(html, state, helmet))
+    res.set('Content-Type', 'text/html').status(200).end(renderFullPage(html, state, helmet, linkClientJsCss))

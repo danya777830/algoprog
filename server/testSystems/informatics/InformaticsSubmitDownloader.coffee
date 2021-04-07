@@ -38,7 +38,7 @@ EJUDGE_STATUS_TO_OUTCOME =
 
 
 export default class InformaticsSubmitDownloader extends TestSystemSubmitDownloader
-    constructor: (@adminUser, @baseUrl, @admin) ->
+    constructor: (@adminUser, @baseUrl, @admin, @userId) ->
         super()
 
     AC: 'Зачтено/Принято'
@@ -65,9 +65,7 @@ export default class InformaticsSubmitDownloader extends TestSystemSubmitDownloa
             source = JSON.parse(page)?.data?.source || ""
             buf = Buffer.from(source, "utf8")
             source = iconv.decode(buf, "latin1")
-            #if source.length == 0
-            #    throw "Source with length 0"
-            return normalizeCode(entities.decode(source))
+            return normalizeCode(source)
         catch e
             logger.warn "Can't download source ", runid, href, e.stack
             throw e
@@ -124,8 +122,8 @@ export default class InformaticsSubmitDownloader extends TestSystemSubmitDownloa
         rowI = 0
         for row in data
             rowI++
-            uid = row.user.id
-            name = row.user.firstname + " " + row.user.lastname
+            uid = row.user?.id || @userId
+            name = "not used"
             pid = row.problem.id
             runid = row.id + "p" + pid
             prob = row.problem.name
