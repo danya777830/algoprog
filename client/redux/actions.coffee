@@ -1,4 +1,6 @@
-import callApi, {callApiWithBody} from '../lib/callApi'
+import Cookies from 'universal-cookie'
+
+import callApi, {callApiWithBody, callWsApiWithBody} from '../lib/callApi'
 
 import {getRawData} from './getters'
 
@@ -11,6 +13,7 @@ export LOGIN = 'POST_LOGIN'
 export SET_DEACTIVATED_WARNING_SHOWN = 'SET_DEACTIVATED_WARNING_SHOWN'
 export SET_UNPAID_WARNING_SHOWN = 'SET_UNPAID_WARNING_SHOWN'
 export SWITCH_THEME = 'SWITCH_THEME'
+export SWITCH_LANG = 'SWITCH_LANG'
 
 export updateData = (url, minAgeToUpdate, cookies) ->
     (dispatch, getState) ->
@@ -27,6 +30,15 @@ export updateData = (url, minAgeToUpdate, cookies) ->
             payload: callApiWithBody url, 'GET', if cookies then {"Cookie": cookies} else {}
             meta:
                 url: url
+
+export updateWsData = (url) ->
+    (dispatch, getState) ->
+        callWsApiWithBody url, (result) ->
+            dispatch
+                type: GET_DATA
+                payload: Promise.resolve(JSON.parse(result))
+                meta:
+                    url: url
 
 export invalidateData = (url) ->
     return
@@ -63,3 +75,11 @@ export switchTheme = (newTheme) ->
     return 
         type: SWITCH_THEME
         value: newTheme
+
+export switchLang = (newLang) ->
+    (dispatch) ->
+        cookies = new Cookies
+        cookies.set('lang', newLang)
+        dispatch 
+            type: SWITCH_LANG
+            value: newLang

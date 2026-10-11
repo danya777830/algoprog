@@ -1,4 +1,3 @@
-import parseLevel from '../lib/parseLevel'
 import Problem from './problem'
 import logger from '../log'
 
@@ -10,6 +9,7 @@ tablesSchema = new mongoose.Schema
     tables: [String]
     problems: [String]
     parent: String
+    order: String
 
 
 tablesSchema.methods.upsert = () ->

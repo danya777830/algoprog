@@ -9,7 +9,8 @@ import callApi from '../lib/callApi'
 
 import styles from './EditUser.css'
 
-import { GROUPS } from '../lib/informaticsGroups'
+import hasCapability, {SEE_START_LEVEL, EDIT_USER, MOVE_UNKNOWN_USER, hasCapabilityForUserList} from '../lib/adminCapabilities'
+import GROUPS from '../lib/groups'
 
 
 class GroupSelector extends React.Component
@@ -41,7 +42,7 @@ class GroupSelector extends React.Component
                 {
                 res = []
                 a = (el) -> res.push(el)
-                for name, id of GROUPS
+                for name, _ of GROUPS
                     a <Button key={name} active={name==@props.user.userList} onClick={@handleMove(name)}>
                         {name}
                     </Button>
@@ -63,19 +64,23 @@ export default class EditingUserForAdmin extends React.Component
         @handlePaidTillChange = @handlePaidTillChange.bind(this)
         @handlePriceChange = @handlePriceChange.bind(this)
         @handleAchievesChange = @handleAchievesChange.bind(this)
+        @handleMembersChange = @handleMembersChange.bind(this)
         @handlePasswordChange = @handlePasswordChange.bind(this)
+        @handleNameChange = @handleNameChange.bind(this)
         @handleSubmit = @handleSubmit.bind(this)
         @handleKeyPressed = @handleKeyPressed.bind(this)
         @updateResults = @updateResults.bind(this)
 
     startState: (props) ->
         return
+            name: props.user.name || ''
             graduateYear: props.user.graduateYear || '',
             baseLevel: props.user.level.base || '',
             cfLogin: props.user.cf?.login || '',
             paidTill: if props.user.paidTill then moment(props.user.paidTill).format("YYYY-MM-DD") else ''
             price: if props.user.price? then ''+props.user.price else ''
             achieves: (props.user.achieves || []).join(' ')
+            members: (props.user.members || []).join(' ')
             password: ''
 
     componentDidUpdate: (prevProps, prevState) ->
@@ -107,11 +112,18 @@ export default class EditingUserForAdmin extends React.Component
     handleAchievesChange: (event) ->
         @handleChange("achieves", event)
 
+    handleMembersChange: (event) ->
+        @handleChange("members", event)
+
+    handleNameChange: (event) ->
+        @handleChange("name", event)
+
     handlePasswordChange: (event) ->
         @handleChange("password", event)
 
     handleSubmit: (event) ->
         await callApi('user/' + @props.user._id + '/setAdmin',
+            name: @state.name
             graduateYear: @state.graduateYear
             level:
                 base: @state.baseLevel
@@ -120,6 +132,7 @@ export default class EditingUserForAdmin extends React.Component
             paidTill: @state.paidTill
             price: @state.price
             achieves: @state.achieves
+            members: @state.members
             password: @state.password
         )
         @props.handleReload()
@@ -133,8 +146,18 @@ export default class EditingUserForAdmin extends React.Component
         @props.handleReload()
 
     render: () ->
+        admin = hasCapabilityForUserList(@props.me, EDIT_USER, @props.user.userList) 
         <div>
-            <form className={styles.form} onSubmit={@handleSubmit}>
+            {admin && <form className={styles.form} onSubmit={@handleSubmit}>
+                <div>
+                    Имя: <input
+                        type="text"
+                        name="name"
+                        value={@state.name}
+                        size="30"
+                        onChange={@handleNameChange}
+                        onKeyPress={@handleKeyPressed} />
+                </div>
                 <div>
                     Год выпуска: <input
                         type="text"
@@ -199,6 +222,16 @@ export default class EditingUserForAdmin extends React.Component
                         onKeyPress={@handleKeyPressed} />
                 </div>
                 <div>
+                    Состав (для команды на Архиве): <input
+                        type="text"
+                        name="members"
+                        value={@state.members}
+                        size="20"
+                        onChange={@handleMembersChange}
+                        onKeyPress={@handleKeyPressed} />
+                    {" (на сервере: #{@props.user.members.join(' ')})"}
+                </div>
+                <div>
                     Пароль: <input
                         type="text"
                         name="password"
@@ -207,7 +240,7 @@ export default class EditingUserForAdmin extends React.Component
                         onChange={@handlePasswordChange}
                         onKeyPress={@handleKeyPressed} />
                 </div>
-            </form>
+            </form>}
             <GroupSelector user={@props.user} handleReload={@props.handleReload}/>
-            <Button onClick={@updateResults}>Update results</Button>
+            {admin && <Button onClick={@updateResults}>Update results</Button>}
         </div>

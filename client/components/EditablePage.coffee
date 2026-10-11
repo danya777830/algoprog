@@ -5,13 +5,44 @@ import Button from 'react-bootstrap/lib/Button'
 import FieldGroup from './FieldGroup'
 import ConnectedComponent from '../lib/ConnectedComponent'
 
-import callApi from '../lib/callApi'
+import {LangRaw} from '../lang/lang'
 
-SimplePage = (props) ->
-    <div>
-        <div dangerouslySetInnerHTML={{__html: props.material.content}}>
+import withLang from '../lib/withLang'
+import callApi from '../lib/callApi'
+import hasCapability, {EDIT_PAGE} from '../lib/adminCapabilities'
+
+
+class SimplePage extends React.Component
+    updatePreElements: () =>
+        preElements = @statementEl.querySelectorAll("pre")
+        preElements.forEach (preElement) =>
+            copyBtn = document.createElement "button"
+            copyBtn.className = "btn btn-default btn-xs"
+            copyBtn.appendChild document.createTextNode LangRaw("copy", @props.lang)
+            copyBtn.onclick = () =>
+                navigator.clipboard.writeText preElement.innerText
+                copyBtn.textContent = LangRaw("copied", @props.lang)
+                copyBtn.className = "btn btn-success btn-xs"
+                clearSuccess = () => 
+                    copyBtn.className = "btn btn-default btn-xs"
+                    copyBtn.textContent = LangRaw("copy", @props.lang)
+                setTimeout clearSuccess, 1000
+            preElement.before(copyBtn)
+
+    componentDidMount: () =>
+        @updatePreElements()
+
+    componentDidUpdate: (prevProps) =>
+        if @props.material.content != prevProps.material.content
+            @updatePreElements()
+
+    render: () ->
+        <div>
+            <div dangerouslySetInnerHTML={{__html: @props.material.content}} ref={(el) => @statementEl = el}>
+            </div>
         </div>
-    </div>
+
+SimplePage = withLang SimplePage
 
 class EditablePage extends React.Component
     constructor: (props) ->
@@ -49,7 +80,7 @@ class EditablePage extends React.Component
                 title: @props.material.title
 
     render: () ->
-        if not @props.me?.admin
+        if not hasCapability(@props.me, EDIT_PAGE)
             return <SimplePage material={@props.material}/>
         if @state.isEditing
             <div>

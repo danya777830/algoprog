@@ -1,14 +1,17 @@
 React = require('react')
 
 import Button from 'react-bootstrap/lib/Button'
-import Loader from '../components/Loader'
 
 import CfStatus from './CfStatus'
-import callApi from '../lib/callApi'
-
 import styles from './EditUser.css'
+import Loader from './Loader'
 
-import {getClassStartingFromJuly} from '../../client/lib/graduateYearToClass'
+import Lang, {LangRaw} from '../lang/lang'
+
+import callApi from '../lib/callApi'
+import ConnectedComponent from '../lib/ConnectedComponent'
+import {getClassStartingFromJuly} from '../lib/graduateYearToClass'
+import withLang from '../lib/withLang'
 
 class Input extends React.Component
     constructor: (props) ->
@@ -40,15 +43,19 @@ class Input extends React.Component
                 }
         </div>
 
-export default class EditingUser extends React.Component
+class EditingUser extends React.Component
     constructor: (props) ->
         super(props)
         @state = @startState(props)
         @handleNewNameChange = @handleNewNameChange.bind(this)
         @handleCfChange = @handleCfChange.bind(this)
+        @handleTelegramChange = @handleTelegramChange.bind(this)
         @handleClassChange = @handleClassChange.bind(this)
         @handleInformaticsPasswordChange = @handleInformaticsPasswordChange.bind(this)
+        @handleCodeforcesUsernameChange = @handleCodeforcesUsernameChange.bind(this)
+        @handleCodeforcesPasswordChange = @handleCodeforcesPasswordChange.bind(this)
         @updateInformatics = @updateInformatics.bind(this)
+        @updateCodeforces = @updateCodeforces.bind(this)
         @handleNewPassOneChange = @handleNewPassOneChange.bind(this)
         @handleNewPassTwoChange = @handleNewPassTwoChange.bind(this)
         @handlePasswordChange = @handlePasswordChange.bind(this)
@@ -60,12 +67,16 @@ export default class EditingUser extends React.Component
             cfLogin: props.user.cf?.login || ''
             password: ''
             clas: getClassStartingFromJuly(@props.user.graduateYear) || ''
+            codeforcesUsername: props.registeredUser.codeforcesUsername
+            codeforcesPassword: ''
             newPassOne: ''
             newPassTwo: ''
-            loading: false
             informaticsPassword: ''
+            newTelegram: props.user.telegram || ''
+            loading: false
             informaticsError: false
             informaticsLoading: false
+            codeforcesLoading: false
             passError: false
             newName: @props.user.name
             unknownError: false
@@ -91,9 +102,27 @@ export default class EditingUser extends React.Component
                 await @setState informaticsError: false
         await @setState informaticsLoading: false
 
+    updateCodeforces: ()->
+        await @setState codeforcesLoading: true
+        if (@state.codeforcesPassword != '' and @state.codeforcesUsername != '')
+            try
+                data = await callApi "codeforces/userData", {
+                    username: @state.codeforcesUsername
+                    password: @state.codeforcesPassword
+                }
+                if not data.status
+                    throw "Wrong codeforces"
+                @setState codeforcesError: false
+            catch
+                @setState codeforcesError: true
+        else
+            @setState codeforcesError: false
+        @setState codeforcesLoading: false
+
     submit: ()->
         try
             await @setState loading: true
+            window.scrollTo(0, 0)
             z = await callApi('user/' + @props.user._id + '/set',
                 cf:
                     login: @state.cfLogin
@@ -103,18 +132,29 @@ export default class EditingUser extends React.Component
                 informaticsPassword: @state.informaticsPassword
                 informaticsUsername: @props.me.informaticsUsername
                 newName: @state.newName
+                codeforcesUsername: @state.codeforcesUsername
+                codeforcesPassword: @state.codeforcesPassword
+                telegram: @state.newTelegram
                 )
             if (z.passError)
                 await @setState passError: true
             else
-                @props.handleReload()
-                return
+                window.goto("/user/#{@props.user._id}")()
             await @setState loading: false
         catch
             @setState unknownError: true
 
     handleCfChange: (event) ->
         await @setState cfLogin: event.target.value
+        
+    handleTelegramChange: (event) ->
+        await @setState newTelegram: event.target.value
+
+    handleCodeforcesUsernameChange: (event)->
+        await @setState codeforcesUsername: event.target.value
+
+    handleCodeforcesPasswordChange: (event)->
+        await @setState codeforcesPassword: event.target.value
 
     handlePasswordChange: (event) ->
         await @setState password: event.target.value, passError: false
@@ -141,11 +181,50 @@ export default class EditingUser extends React.Component
             noMatch = (@state.newPassOne != @state.newPassTwo)
             whitespace = (@state.newPassOne.startsWith(' ') or @state.newPassTwo.startsWith(' ') or @state.newPassOne.endsWith(' ') or @state.newPassTwo.endsWith(' '))
             cls = @state.clas
-            buttonDisabled = noMatch or whitespace or @state.informaticsError or @state.informaticsLoading
+            buttonDisabled = noMatch or whitespace or @state.informaticsError or @state.informaticsLoading or @state.codeforcesLoading or @state.codeforcesError
             <div>
+                <h2>{LangRaw("edit_profile", @props.lang)}</h2>
                 <form className = {styles.form}>
                     <div>
-                        Новое имя
+                        {LangRaw("old_password_required", @props.lang)}:
+                            <Input
+                                type = "password"
+                                name = "password"
+                                value =  {@state.password}
+                                onChange = {@handlePasswordChange}
+                                errors = {[@state.passError && LangRaw("wrong_password", @props.lang)]}
+                                onKeyPress={@handleKeyPressed}
+                            />
+                    </div>
+                    <h3>{LangRaw("change_password", @props.lang)}</h3>
+                    <div>
+                        {LangRaw("new_password", @props.lang)}:
+                            <Input
+                                type = "password"
+                                name = "password"
+                                value = {@state.newPassOne}
+                                onChange = {@handleNewPassOneChange}
+                                hideErrors = {true}
+                                errors = {[noMatch && LangRaw("passwords_are_not_equal", @props.lang), 
+                                    whitespace && LangRaw("password_can_not_start_with_space", @props.lang)]}
+                                onKeyPress={@handleKeyPressed}
+                            />
+                    </div>
+                    <div>
+                        {LangRaw("repeat_password", @props.lang)}:
+                            <Input
+                                type = "password"
+                                name = "password"
+                                value = {@state.newPassTwo}
+                                onChange = {@handleNewPassTwoChange}
+                                errors ={[noMatch && LangRaw("passwords_are_not_equal", @props.lang), 
+                                    whitespace && LangRaw("password_can_not_start_with_space", @props.lang)]}
+                                onKeyPress={@handleKeyPressed}
+                            />
+                    </div>
+                    <h3>{LangRaw("profile_data", @props.lang)}</h3>
+                    <div>
+                        {LangRaw("new_name", @props.lang)}:
                             <Input
                                 type = "text"
                                 name = "newName"
@@ -155,7 +234,7 @@ export default class EditingUser extends React.Component
                             />
                     </div>
                     <div>
-                        Логин на codeforces
+                        {LangRaw("codeforces_handle", @props.lang)}:
                             <Input
                                 type = "text"
                                 name = "newLogin"
@@ -165,7 +244,7 @@ export default class EditingUser extends React.Component
                             />
                     </div>
                     <div>
-                        Класс
+                        {LangRaw("class", @props.lang)}:
                             <Input
                                 type = "number"
                                 name = "newClass"
@@ -175,51 +254,61 @@ export default class EditingUser extends React.Component
                             />
                     </div>
                     <div>
-                        Пароль от informatics
+                        {LangRaw("informatics_password", @props.lang)}:
                             <Input
                                 type = "password"
                                 name = "InformsticsPassword"
                                 value = {@state.informaticsPassword}
                                 onChange = {@handleInformaticsPasswordChange}
                                 onBlur = {@updateInformatics}
-                                errors = {[@state.informaticsError && <div>Пароль не подходит к <a href="https://informatics.mccme.ru/user/view.php?id=#{@props.user._id}">вашему аккаунту на informatics</a></div>]}
+                                errors = {[@state.informaticsError && LangRaw("informatics_password_does_not_match_account", @props.lang)(@props.user._id)]}
+                            />
+                    </div>
+                    <h3>{LangRaw("codeforces_data_for_submitting_problems", @props.lang)} </h3>
+                    <div>
+                        {LangRaw("codeforces_data_for_submitting_problems_intro", @props.lang)}
+                        <br/>
+                        {LangRaw("codeforces_data_for_submitting_problems_handle", @props.lang)}:
+                            <Input
+                                type = "text"
+                                name = "codeforcesUsername"
+                                value = {@state.codeforcesUsername}
+                                onChange = {@handleCodeforcesUsernameChange}
+                                onBlur = {@updateCodeforces}
+                                errors = {[@state.codeforcesError && <div>{LangRaw("login_and_password_do_not_match", @props.lang)}</div>]}
                             />
                     </div>
                     <div>
-                        Новый пароль
+                        {LangRaw("codeforces_data_for_submitting_problems_password", @props.lang)}:
                             <Input
                                 type = "password"
-                                name = "password"
-                                value = {@state.newPassOne}
-                                onChange = {@handleNewPassOneChange}
-                                hideErrors = {true}
-                                errors = {[noMatch && "Пароли не совпадают", whitespace && "Пароль не может начинаться с пробела или заканчиваться на него"]}
-                                onKeyPress={@handleKeyPressed}
+                                name = "codeforcesPassword"
+                                value = {@state.codeforcesPassword}
+                                onChange = {@handleCodeforcesPasswordChange}
+                                onBlur = {@updateCodeforces}
+                                errors = {[@state.codeforcesError && <div>{LangRaw("login_and_password_do_not_match", @props.lang)}</div>]}
                             />
                     </div>
+                    <h3>{LangRaw("telegram_account", @props.lang)}</h3>
                     <div>
-                        Повторите пароль
+                        {LangRaw("telegram_account_intro", @props.lang)}
+                        <br/>
+                        {LangRaw("telegram_data", @props.lang)}
                             <Input
-                                type = "password"
-                                name = "password"
-                                value = {@state.newPassTwo}
-                                onChange = {@handleNewPassTwoChange}
-                                errors = {[noMatch && "Пароли не совпадают", whitespace && "Пароль не может начинаться с пробела или заканчиваться на него"]}
+                                type = "text"
+                                name = "newTelegram"
+                                value = {@state.newTelegram}
+                                onChange = {@handleTelegramChange}
                                 onKeyPress={@handleKeyPressed}
                             />
                     </div>
-                    <div>
-                        Старый пароль
-                            <Input
-                                type = "password"
-                                name = "password"
-                                value =  {@state.password}
-                                onChange = {@handlePasswordChange}
-                                errors = {[@state.passError && "Неправильный пароль"]}
-                                onKeyPress={@handleKeyPressed}
-                            />
-                    </div>
-                    {@state.unknownError && <div className = {styles.youHaveProblem}>Неизвестная ошибка, проверьте подключение к интернету и перезагрузите страницу</div>}
+                    {@state.unknownError && <div className = {styles.youHaveProblem}></div>}
                 </form>
-                <Button onClick = {@submit} variant="light" bsSize = "small" disabled = {buttonDisabled}>Ок</Button>
+                <Button onClick = {@submit} variant="light" bsSize = "small" disabled = {buttonDisabled}>OK</Button>
             </div>
+
+options =
+    urls: (props) ->
+        registeredUser: "registeredUser/#{props.user._id}"
+
+export default ConnectedComponent(withLang(EditingUser), options)

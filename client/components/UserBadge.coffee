@@ -4,62 +4,58 @@ moment = require('moment')
 deepEqual = require('deep-equal')
 
 import Button from 'react-bootstrap/lib/Button'
+import { Link } from 'react-router-dom'
+
+import {LangRaw} from '../lang/lang'
 
 import callApi from '../lib/callApi'
+import {getClassStartingFromJuly} from '../lib/graduateYearToClass'
+import stripLabel from '../lib/stripLabel'
+import withLang from '../lib/withLang'
+import hasCapability, {SEE_START_LEVEL, EDIT_USER, MOVE_UNKNOWN_USER, hasCapabilityForUserList} from '../lib/adminCapabilities'
 
-import CfStatus from './CfStatus'
-import EditingUser from './EditUser'
-import EditingUserForAdmin from './EditUserForAdmin'
-import UserName from './UserName'
+
 import {BigAchieves} from './Achieves'
+import CfStatus from './CfStatus'
+import EditingUserForAdmin from './EditUserForAdmin'
+import TShirts from './TShirts'
+import UserName from './UserName'
 
-import {getClassStartingFromJuly} from '../../client/lib/graduateYearToClass'
 
 export default class UserBadge extends React.Component
     constructor: (props) ->
         super(props)
-        @state = @startState(props)
-        @reload = @reload.bind(this)
-
-
-    startState: (props) ->
-        return
-            editing: false
-
-    reload: () ->
-        await @setState editing:!@state.editing
-        @props.handleReload()
 
     render: () ->
         cls = getClassStartingFromJuly(@props.user.graduateYear)
+        LANG = (id) => LangRaw(id, @props.lang)
+        showAdmin = hasCapabilityForUserList(@props.me, EDIT_USER, @props.user.userList) || (@props.user.userList == "unknown" && hasCapability(@props.me, MOVE_UNKNOWN_USER))
+        console.log(@props.me, @props.user.userList, showAdmin)
         <div>
             <h1>
                 <UserName user={@props.user} noachieves={true}/>
             </h1>
             <BigAchieves achieves = {@props.user.achieves} />
+            <h2><TShirts user={@props.user} onClick={@props.onTShirtsClick}/></h2>
             <blockquote>
-                {cls && <div>Класс: {cls}</div>}
-                <div>Уровень: {@props.user.level.current}</div>
-                { @props.me?.admin &&
+                {cls && <div>{LANG("class")}: {cls}</div>}
+                <div>{LANG("level")}: {stripLabel(@props.user.level?.current)}</div>
+                { hasCapabilityForUserList(@props.me, SEE_START_LEVEL, @props.user.userList) &&
                     <div>
-                        Уровень на начало полугодия: {@props.user.level.start}
+                        Уровень на начало полугодия: {@props.user.level?.start}
                     </div> }
-                <div>Рейтинг: {@props.user.rating}</div>
-                <div>Активность: {@props.user.activity.toFixed(1)}</div>
+                <div>{LANG("rating")}: {@props.user.rating}</div>
+                <div>{LANG("activity")}: {@props.user.activity.toFixed(1)}</div>
                 {
                 if @props.user.cf?.rating
-                    <div> Codeforces рейтинг: <CfStatus cf = {@props.user.cf}/> </div>
+                    <div>{LANG("codeforces_rating")}: <CfStatus cf = {@props.user.cf}/> </div>
                 else if @props.explain
-                        <div>Логин на codeforces неизвестен. Если вы там зарегистированы, укажите логин в своём профиле.</div>
+                        <div>{LANG("cf_login_unknown")}</div>
                 }
-                {@props.me?.admin && <EditingUserForAdmin {...this.props}/>}
-                {if(@state.editing && +@props.user._id == @props.me?.informaticsId)
-                    <div>
-                        <EditingUser {...this.props} handleReload = {@reload}/>
-                    </div>
-                else
-                    <Button variant="light" bsSize="small" onClick = {@reload}>Редактировать профиль</Button>}
+                {showAdmin && <EditingUserForAdmin {...this.props}/>}
+                {if +@props.user._id == @props.me?.informaticsId
+                    <Link to="/edituser/#{@props.user._id}">{LANG("edit_profile")}</Link>}
             </blockquote>
             { @props.explain &&
-                <a href = {"/user/" + @props.user._id} target = "_blank">Полные результаты</a> }
+                <a href = {"/user/" + @props.user._id} target = "_blank">{LANG("full_results")}</a> }
         </div>

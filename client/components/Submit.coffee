@@ -1,6 +1,5 @@
 React = require('react')
 moment = require('moment')
-iconv = require('iconv-lite')
 FontAwesome = require('react-fontawesome')
 
 import Button from 'react-bootstrap/lib/Button'
@@ -12,11 +11,18 @@ import Grid from 'react-bootstrap/lib/Grid'
 import Col from 'react-bootstrap/lib/Col'
 
 import {Link} from 'react-router-dom'
+import { LinkContainer } from 'react-router-bootstrap'
 
-import UserName from './UserName'
-import {getClassStartingFromJuly} from '../../client/lib/graduateYearToClass'
+import {LangRaw} from '../lang/lang'
 
+import {getClassStartingFromJuly} from '../lib/graduateYearToClass'
 import outcomeToText from '../lib/outcomeToText'
+import toUtf8 from '../lib/toUtf8'
+import withLang from '../lib/withLang'
+import hasCapability, {REVIEW, hasCapabilityForUserList} from '../lib/adminCapabilities'
+
+import {DiffEditor} from './Editor'
+import UserName from './UserName'
 
 import styles from './Submit.css'
 
@@ -33,6 +39,8 @@ LANGUAGE_TO_HIGHLIGHT_STYLE =
     "Ruby": "ruby",
     "Haskell": "haskell",
     "BASIC": "basic",
+    "Go": "go",
+    "Kotlin": "kotlin"
 
 langClass = (lang) ->
     for l, style of LANGUAGE_TO_HIGHLIGHT_STYLE
@@ -40,32 +48,33 @@ langClass = (lang) ->
             return style
     return ""
 
-convert = (source, encoding) ->
-    if not source
-        return ""
-    buf = Buffer.from(source, "latin1")
-    return iconv.decode(buf, encoding)
+Comment = (props) ->
+    if props.comment.text
+        text = "#{props.comment.text}\n-- #{props.comment.reviewer}"
+    else    
+        text = props.comment
+    <pre dangerouslySetInnerHTML={{__html: text}}></pre>
 
-ENCODINGS = ["utf8", "win1251", "cp866"]
-
-export class SubmitSource extends React.Component
+class SubmitSource extends React.Component
     constructor: (props) ->
         super(props)
         @state =
-            encoding: ENCODINGS[0]
-        @setEncoding = @setEncoding.bind this
+            copied: false
+        @copy = @copy.bind this
 
-    setEncoding: (encoding) ->
+    copy: () ->
         (e) =>
-            e.preventDefault()
+            navigator.clipboard.writeText @props.submit.sourceRaw
             @setState
-                encoding: encoding
+                copied: true
 
     componentDidMount: ->
         @doHighlight()
 
     componentDidUpdate:  (prevProps, prevState) ->
-        if @props.submit._id != prevProps.submit._id or prevState.encoding != @state.encoding
+        if @props.submit._id != prevProps.submit._id
+            @state =
+                copied: false
             @doHighlight()
 
     doHighlight: ->
@@ -73,31 +82,44 @@ export class SubmitSource extends React.Component
             hljs.highlightBlock(el)
 
     render: () ->
+        copyClass = if @state.copied then "success" else "default"
+        copyText = if @state.copied then LangRaw("copied", @props.lang) else LangRaw("copy", @props.lang)
+        source = toUtf8(@props.submit.source)
         <div>
-            <pre dangerouslySetInnerHTML={{__html: convert(@props.submit.source, @state.encoding)}} className={"sourcecode " + langClass(@props.submit.language)}></pre>
-            Кодировка:{" "}
+            {if @props.submit.isBinary
+                <pre>{LangRaw("file_is_binary_or_too_long", @props.lang)}</pre>
+            else
+                <pre dangerouslySetInnerHTML={{__html: source}} className={"sourcecode " + langClass(@props.submit.language)}></pre>
+            }
             <ButtonGroup>
-                {
-                ENCODINGS.map (encoding) =>
-                    <Button active={encoding==@state.encoding} onClick={@setEncoding(encoding)} key={encoding}>
-                        {encoding}
+                <Button bsStyle={copyClass} bsSize="xsmall" onClick={@copy()}>{copyText}</Button>
+                <a href={"/api/submitSource/#{@props.submit._id}"} target="_blank">
+                    <Button bsStyle="default" bsSize="xsmall">
+                        {LangRaw("download", @props.lang)}
                     </Button>
-                }
+                </a>
             </ButtonGroup>
-            <div><a href={"/api/submitSource/#{@props.submit._id}"}>Скачать</a></div>
         </div>
 
+export SubmitSource = withLang SubmitSource
+
 export SubmitHeader = (props) ->
-    [cl, message] = outcomeToText(props.submit.outcome)
-    <div>
+    [cl, message] = outcomeToText(props.submit.outcome, props.lang)
+    <div className={(if props.sticky then styles.stickyHeader else "") + " " + (props.className || "")}>
         <h3>{moment(props.submit.time).format('YYYY-MM-DD kk:mm:ss')}</h3>
-        <h1><UserName user={props.submit.fullUser}/>
-            {props.admin && " (#{getClassStartingFromJuly(props.submit.fullUser.graduateYear)}, #{props.submit.fullUser.level.current}, #{props.submit.fullUser.userList}), " || ", "}
+        <h1>{props.submit.fullUser && <UserName user={props.submit.fullUser}/>}
+            {props.admin && " (#{getClassStartingFromJuly(props.submit.fullUser?.graduateYear)}, #{props.submit.fullUser?.level?.current}, #{props.submit.fullUser?.userList}), " || ", "}
             <Link to={"/material/#{props.submit.problem}"}>{props.submit.fullProblem.name}</Link>{": "}
             {message}
         </h1>
         <h4>{props.submit.fullProblem.tables.join("\n")}</h4>
     </div>
+
+getClassName = (status) ->
+    switch status
+        when "OK" then "success"
+        when "Превышен предел времени", "Превышено максимальное время работы", "Превышено максимальное общее время работы", "TIME_LIMIT_EXCEEDED", "TL" then "info"
+        else styles.wa
 
 class TestResult extends React.Component
     constructor: (props) ->
@@ -113,15 +135,26 @@ class TestResult extends React.Component
     render: () ->
         canToggle = "input" of @props.result
         res = []
-        res.push <tr className={if canToggle then styles.toggling else ""} onClick={@toggle} key="1">
-            <td>{@props.index}
+        status = outcomeToText(@props.result.string_status, @props.lang)[1]
+        if @props.result.checker_output
+            status = @props.result.checker_output.substr(0, 70)
+        classname = getClassName(@props.result.string_status)
+        res.push <tr className={if canToggle then styles.toggling else ""} onClick={@toggle} key="1" width="100%" className={classname} title={@props.result.string_status}>
+            <td>{@props.index}{" "}
                 {@props.copyTest && <span onClick={@props.copyTest(@props.result)}><FontAwesome name="chevron-circle-down"/></span>}
             </td>
-            <td>{@props.result.string_status}</td>
+            <td className={styles.status}><span>{status}</span></td>
             <td>{@props.result.time/1000}</td>
             <td>{@props.result.max_memory_used}</td>
         </tr>
         if canToggle and @state.open
+            editorDidMount = (orig, modif, e) =>
+                h1 = e.getOriginalEditor().getContentHeight();
+                h2 = e.getModifiedEditor().getContentHeight();
+                h = Math.min(300, Math.max(h1, h2))
+                document.getElementById(styles.diffEditor + "_" + @props.index).style.height = "#{h}px"
+                e.layout()
+
             res.push <tr key="2"><td colSpan="4" className={styles.td}>
                 <Grid fluid>
                     <Col xs={12} sm={12} md={6} lg={6}>
@@ -136,41 +169,39 @@ class TestResult extends React.Component
                     </Col>
                 </Grid>
                 <Grid fluid>
-                    <Col xs={12} sm={12} md={6} lg={6}>
-                        Output:
-                        <pre>{@props.result.output}</pre>
-                    </Col>
-                    <Col xs={12} sm={12} md={6} lg={6}>
-                        Answer:
-                        <pre>{@props.result.corr}</pre>
+                    <Col xs={12} sm={12} md={12} lg={12}>
+                        Left: answer, right: output
+                        <div id={styles.diffEditor + "_" + @props.index}>
+                            <DiffEditor original={@props.result.corr} modified={@props.result.output} editorDidMount={editorDidMount} height={null}/>
+                        </div>
                     </Col>
                 </Grid>
             </td></tr>
         return res
 
-export default class Submit extends React.Component
+class Submit extends React.Component
     constructor: (props) ->
         super(props)
 
     render: () ->
-        [cl, message] = outcomeToText(@props.submit.outcome)
-        admin = @props.me?.admin
+        [cl, message] = outcomeToText(@props.submit.outcome, @props.lang)
+        admin = hasCapabilityForUserList(@props.me, REVIEW, @props.submit.userList)
         <div>
-            {@props.showHeader && <SubmitHeader submit={@props.submit} admin={admin}/>}
+            {@props.showHeader && <SubmitHeader submit={@props.submit} admin={admin} sticky={@props.headerSticky} className={@props.headerClassName} lang={@props.lang}/>}
             <Tabs defaultActiveKey={1} id="submitTabs">
-                <Tab eventKey={1} title="Исходный код">
+                <Tab eventKey={1} title={LangRaw("source_code", @props.lang)}>
                     <SubmitSource submit={@props.submit} />
                 </Tab>
-                <Tab eventKey={2} title="Комментарии">
+                <Tab eventKey={2} title={LangRaw("comments", @props.lang)}>
                     {
                     res = []
                     a = (el) -> res.push(el)
                     for comment, index in (@props.submit?.comments || [])
-                        a <pre key={index} dangerouslySetInnerHTML={{__html: comment}}></pre>
+                        a <Comment key={index} comment={comment}/>
                     res}
                 </Tab>
-                <Tab eventKey={3} title="Результаты">
-                    <h4>Вывод компилятора</h4>
+                <Tab eventKey={3} title={LangRaw("results", @props.lang)}>
+                    <h4>{LangRaw("compiler_output", @props.lang)}</h4>
                     {
                     if @props.submit.results?.compiler_output
                         <pre dangerouslySetInnerHTML={{__html: @props.submit.results?.compiler_output}}/>
@@ -183,9 +214,9 @@ export default class Submit extends React.Component
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Результат</th>
-                                <th>Время</th>
-                                <th>Память</th>
+                                <th>{LangRaw("result", @props.lang)}</th>
+                                <th>{LangRaw("time", @props.lang)}</th>
+                                <th>{LangRaw("memory", @props.lang)}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -193,10 +224,12 @@ export default class Submit extends React.Component
                             res = []
                             a = (el) -> res.push(el)
                             for index, result of (@props.submit.results?.tests || [])
-                                a <TestResult key={index} result={result} index={index} copyTest={@props.copyTest}/>
+                                a <TestResult key={index} result={result} index={index} copyTest={@props.copyTest} lang={@props.lang}/>
                             res}
                         </tbody>
                     </Table>
                 </Tab>
             </Tabs>
         </div>
+
+export default withLang Submit

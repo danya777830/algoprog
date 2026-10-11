@@ -147,18 +147,19 @@ export default class Ejudge extends TestSystem
 
     getAdmin: (contestId) ->
         admin = await RegisteredUser.findAdmin()
+        if not admin
+            return null
         return LoggedEjudgeUser.getUser(@server, contestId, admin.ejudgeUsername, admin.ejudgePassword, true)
 
     registerUser: (registeredUser) ->
         logger.info "Try register user #{registeredUser.informaticsUsername}"
         adminUser = await @getAdmin(@baseContest)
 
-        registeredUser.ejudgeUsername = registeredUser.informaticsUsername
-        registeredUser.ejudgePassword = registeredUser.informaticsPassword
+        registeredUser.ejudgeUsername = registeredUser.informaticsUsername || registeredUser.username
+        registeredUser.ejudgePassword = Math.random().toString(36).substr(2)
 
         href = "#{@server}/cgi-bin/serve-control"
         form =
-            SID: adminUser.sid["serve-control"]
             contest_id: @baseContest
             group_id: ""
             other_login: registeredUser.ejudgeUsername
@@ -194,6 +195,68 @@ export default class Ejudge extends TestSystem
         }, "new-master")
         await registeredUser.upsert()
         logger.info "Done register user #{registeredUser.informaticsUsername}"
+
+    randomizePassword: (registeredUsers) ->
+        if registeredUsers[0].admin
+            return
+        logger.info "Block/unblock user #{registeredUsers[0].informaticsUsername}"
+        adminUser = await @getAdmin(@baseContest)
+
+        newPassword = Math.random().toString(36).substr(2)
+        logger.info "Will set ejudge password=#{newPassword}"
+
+        href = "#{@server}/cgi-bin/serve-control"
+        searchForm =
+            SID: adminUser.sid["serve-control"]
+            contest_id: 0
+            group_id: 0
+            action: 305
+            _search: true
+            rows: 10
+            page: 1
+            sidx: "id"
+            sord: "asc"
+            searchField: "login"
+            searchString: registeredUsers[0].ejudgeUsername
+            searchOper: "eq"
+
+        data = await adminUser.download(href, {
+            method: 'POST',
+            headers: {'Content-Type': "application/x-www-form-urlencoded"},
+            form: searchForm,
+            followAllRedirects: true
+        }, "serve-control")
+        data = JSON.parse(data)
+        id = data?.rows?[0]?.id
+        if not id
+            throw "Can't find user id"
+
+        form =
+            SID: adminUser.sid["serve-control"]
+            other_user_id: id
+            contest_id: ""
+            group_id: ""
+            next_op: 78
+            reg_password1: newPassword
+            reg_password2: newPassword
+            reg_random: ""
+            action_80: "Change password"
+        data = await adminUser.download(href, {
+            method: 'POST',
+            headers: {'Content-Type': "application/x-www-form-urlencoded"},
+            form: form,
+            followAllRedirects: true
+        }, "serve-control")
+        await adminUser.download("#{@server}/cgi-bin/new-master", {
+            method: 'POST',
+            headers: {'Content-Type': "application/x-www-form-urlencoded"},
+            form: {action_276: "Reload config files for ALL contests"},
+            followAllRedirects: true
+        }, "new-master")
+        for u in registeredUsers
+            u.ejudgePassword = newPassword
+            await u.upsert()
+        logger.info "Done register user #{registeredUsers[0].informaticsUsername}"
 
     parseProblem: (admin, problemHref) ->
         page = await admin.download(problemHref)
@@ -317,9 +380,18 @@ export default class Ejudge extends TestSystem
             #logger.info "Found problem ", problem
         return result
 
-    downloadProblem: (options) ->
+    downloadProblem: (options, label) ->
+        if label != ""
+            return 
+                name: "Name #{options.contest} #{options.problem}"
+                text: "Text #{options.contest} #{options.problem}"
         {contest, problem} = options
         admin = await @getAdmin(contest)
+        if admin == null
+            return 
+                name: "Name #{options.contest} #{options.problem}"
+                text: "Text #{options.contest} #{options.problem}"
+            
         href = "#{@server}/cgi-bin/new-client?action=139&prob_id=#{problem}"
         return await @parseProblem(admin, href)
 

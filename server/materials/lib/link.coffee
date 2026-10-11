@@ -1,12 +1,13 @@
 class Link
-    constructor: (@link, @title) ->
+    constructor: (@link, @title, @id) ->
 
-    build: (context) ->
+    build: (context, order) ->
         data = 
-            _id: context.generateId(),
+            _id: @id || context.generateId(),
             type: "link",
             content: @link
-            title: @title
+            title: @title?(context.label) || @title
+            order: order
 
         await context.process(data)
         return data

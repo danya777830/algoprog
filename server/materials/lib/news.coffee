@@ -1,16 +1,20 @@
 import MaterialList from "./MaterialList"
 
+labelToName = 
+    "": "Новости"
+    "!en": "News"
+
 class News extends MaterialList
     constructor: (materials) ->
         super(materials)
 
-    build: (context) ->
+    build: (context, order) ->
         properties = 
-            _id: "news"
+            _id: "news#{context.label}"
             type: "news"
-            title: "Новости"
+            title: labelToName[context.label]
 
-        material = await super.build(context, properties)
+        material = await super.build(context, order, properties)
 
         return material
 

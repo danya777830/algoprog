@@ -1,32 +1,40 @@
 mongoose = require('mongoose')
 
+import awaitAll from '../../client/lib/awaitAll'
+
 import calculateChocos from '../calculations/calculateChocos'
 import calculateRatingEtc from '../calculations/calculateRatingEtc'
 import calculateLevel from '../calculations/calculateLevel'
 import calculateCfRating from '../calculations/calculateCfRating'
 import calculateAchieves from '../calculations/calculateAchieves'
+import updateResults from '../calculations/updateResults'
+import updateTableResults from '../calculations/updateTableResults'
+import calculateCalendar from '../calculations/calculateCalendar'
+
+import InformaticsUser from '../informatics/InformaticsUser'
+
+import sleep from '../lib/sleep'
 
 import logger from '../log'
 
-import updateResults from '../calculations/updateResults'
-import calculateCalendar from '../calculations/calculateCalendar'
-
-import sleep from '../lib/sleep'
-import awaitAll from '../../client/lib/awaitAll'
 import RegisteredUser from '../models/registeredUser'
-import InformaticsUser from '../informatics/InformaticsUser'
+
+import getTestSystem from '../testSystems/TestSystemRegistry'
+
 
 SEMESTER_START = "2016-06-01"
-DORMANT_TIME = 1000 * 60 * 60 * 24 * 10
-DEACTIVATED_DORMANT_TIME = 1000 * 60 * 60 * 24 * 90
+DORMANT_TIME = 1000 * 60 * 60 * 24 * 3
+DEACTIVATED_DORMANT_TIME = 1000 * 60 * 60 * 24 * 3
 
 usersSchema = new mongoose.Schema
     _id: String,
     name: String,
     userList: String,
+    mainUserList: String
     activated: Boolean,
     chocos: [Number],
     chocosGot: [Number],
+    tshirtsGot: Number,
     level:
         current: String,
         start: String,
@@ -47,6 +55,12 @@ usersSchema = new mongoose.Schema
     dormant: { type: Boolean, default: false },
     registerDate: Date,
     achieves: [String]
+    prefs:
+        editorOn: Boolean
+        language: String
+        interfaceLanguage: String
+    members: [String]
+    telegram: { type: String, select: false }
 
 usersSchema.methods.upsert = () ->
     # https://jira.mongodb.org/browse/SERVER-14322
@@ -66,24 +80,27 @@ usersSchema.methods.updateRatingEtc = ->
     @update({$set: res})
 
 usersSchema.methods.updateLevel = ->
-    @level.current = await calculateLevel @_id, @level.base, new Date("2100-01-01")
-    @level.start = await calculateLevel @_id, @level.base, new Date(SEMESTER_START)
+    @level.current = await calculateLevel this, new Date("2100-01-01")
+    @level.start = await calculateLevel this, new Date(SEMESTER_START)
     @update({$set: {level: @level}})
 
 usersSchema.methods.updateDormant = ->
     date = new Date()
     if not @activated && @lastActivated && date-@lastActivated > (if @userList=="unknown" then DORMANT_TIME else DEACTIVATED_DORMANT_TIME)
         @dormant = true
-    @update({$set: {dormant: @dormant}})
+        await @update({$set: {dormant: @dormant}})
 
 usersSchema.methods.updateCfRating = ->
+    oldRating = @cf?.rating
     logger.debug "Updating cf rating ", @name
     res = await calculateCfRating this
     logger.debug "Updated cf rating ", @name, res
     if not res
         return
     res.login = @cf.login
-    @update({$set: {cf: res}})
+    await @update({$set: {cf: res}})
+    @cf = res
+    return @cf.rating != oldRating
 
 usersSchema.methods.updateAchieves = (achieves) ->
     logger.info "updating achieves login ", @_id, achieves
@@ -97,6 +114,11 @@ usersSchema.methods.updateGraduateYear = ->
     informaticsUser = await InformaticsUser.getUser(registeredUser.informaticsUsername, registeredUser.informaticsPassword)
     data = await informaticsUser.getData()
     @update({$set: {graduateYear: data.graduateYear}})
+
+usersSchema.methods.randomizeEjudgePassword = ->
+    registeredUsers = await RegisteredUser.findAllByKeyWithPassword(@_id)
+    system = getTestSystem("ejudge")
+    await system.randomizePassword(registeredUsers)
 
 usersSchema.methods.setGraduateYear = (graduateYear) ->
     logger.info "setting graduateYear id ", @_id, graduateYear
@@ -128,10 +150,20 @@ usersSchema.methods.setAchieves = (achieves) ->
     await @update({$set: {"achieves": achieves}})
     @achieves = achieves
 
+usersSchema.methods.setMembers = (members) ->
+    logger.info "setting members login ", @_id, members
+    await @update({$set: {"members": members}})
+    @members = members
+
 usersSchema.methods.setChocosGot = (chocosGot) ->
     logger.info "setting chocosGot ", @_id, chocosGot 
     await @update({$set: {"chocosGot": chocosGot}})
     @chocosGot = chocosGot
+
+usersSchema.methods.setTShirtsGot = (cnt) ->
+    logger.info "setting tshirtsGot ", @_id, cnt
+    await @update({$set: {"tshirtsGot": cnt}})
+    @tshirtsGot = cnt
 
 usersSchema.methods.setUserList = (userList) ->
     logger.info "setting userList ", @_id, userList
@@ -151,12 +183,35 @@ usersSchema.methods.forceSetUserList = (userList) ->
 usersSchema.methods.setDormant = (dormant) ->
     logger.info "setting dormant ", @_id, dormant
     await @update({$set: {"dormant": dormant}})
+    await User.updateUser(@_id)
     @dormant = dormant
 
 usersSchema.methods.setActivated = (activated) ->
     logger.info "setting activated ", @_id, activated
     await @update({$set: {"activated": activated}})
+    User.updateUser(@_id)
     @activated = activated
+
+usersSchema.methods.setTelegram = (telegram) ->
+    logger.info "setting telegram ", @_id, telegram
+    await @update({$set: {telegram}})
+    @telegram = telegram
+
+
+usersSchema.methods.setEditorOn = (editorOn) ->
+    logger.info "set editor on ", @name, editorOn
+    @prefs.editorOn = editorOn
+    @save()
+
+usersSchema.methods.setLanguage = (lang) ->
+    logger.info "set lang on ", @name, lang
+    @prefs.language = lang
+    @save()
+
+usersSchema.methods.setInterfaceLanguage = (lang) ->
+    logger.info "set interface lang on ", @name, lang
+    @prefs.interfaceLanguage = lang
+    @save()
 
 compareLevels = (a, b) ->
     if a.length != b.length
@@ -186,15 +241,29 @@ usersSchema.statics.search = (searchString) ->
 usersSchema.statics.findAll = () ->
     User.find({dormant: false})
 
+usersSchema.statics.findAllAll = () ->
+    User.find({})
+
 usersSchema.statics.findById = (id) ->
     User.findOne({_id: id})
 
 usersSchema.statics.findByAchieve = (achieve) ->
     User.find({achieves: achieve}).sort({ratingSort: -1})
 
+usersSchema.statics.findByTelegram = (id) ->
+    User.findOne({telegram: id})?.select("+telegram")
+
+usersSchema.statics.findByIdWithTelegram = (id) ->
+    User.findById(id)?.select("+telegram")
+
+usersSchema.statics.findTelegram = (id) ->
+    User.findById(id)?.select("+telegram")
+
 usersSchema.statics.updateUser = (userId, dirtyResults) ->
-    logger.info "Updating user", userId
+    start = new Date()
+    logger.info ">>Updating user", userId
     await updateResults(userId, dirtyResults)
+    await updateTableResults(userId)
     await calculateCalendar(userId)
     u = await User.findById(userId)
     if not u
@@ -205,35 +274,65 @@ usersSchema.statics.updateUser = (userId, dirtyResults) ->
     await u.updateLevel()
     await u.updateDormant()
     await u.updateAchieves()
-    logger.info "Updated user", userId
+    logger.info "<<Updated user", userId, " spent time ", (new Date()) - start
 
-usersSchema.statics.updateAllUsers = (dirtyResults) ->
+usersSchema.statics.updateAllUsers = (dirtyResults, alsoDormant) ->
+    PARALLEL = 5
     tryUpdate = (id) ->
         try
             await User.updateUser(id)
         catch e
             logger.warn("Error while updating user: ", e.message || e, e.stack)
 
-    users = await User.findAll()
+    users = []
+    if alsoDormant
+        users = await User.findAllAll()
+    else
+        users = await User.findAll()
     promises = []
     count = 0
     for u in users
         promises.push(tryUpdate(u._id))
         count++
-        if promises.length >= 10
-            logger.info("Updating 10 users, waiting for completion (#{count} / #{users.length})")
+        if promises.length >= PARALLEL
+            logger.info("Updating #{PARALLEL} users, waiting for completion (#{count} / #{users.length})")
             await awaitAll(promises)
-            logger.info("Updated 10 users, continuing (#{count} / #{users.length})")
+            logger.info("Updated #{PARALLEL} users, continuing (#{count} / #{users.length})")
             promises = []
     await awaitAll(promises)
     logger.info("Updated all users")
+
+usersSchema.statics.randomizeEjudgePasswords = () ->
+    PARALLEL = 10
+    tryUpdate = (user) ->
+        try
+            await user.randomizeEjudgePassword()
+        catch e
+            logger.warn("Error while updating user: ", e.message || e, e.stack)
+
+    users = await User.findAllAll()
+    promises = []
+    count = 0
+    for u in users
+        promises.push(tryUpdate(u))
+        count++
+        if promises.length >= PARALLEL
+            logger.info("Randomizing #{PARALLEL} users, waiting for completion (#{count} / #{users.length})")
+            await awaitAll(promises)
+            logger.info("Randomized #{PARALLEL} users, continuing (#{count} / #{users.length})")
+            promises = []
+    await awaitAll(promises)
+    logger.info("Randomized all users")
 
 usersSchema.statics.updateAllCf = () ->
     logger.info "Updating cf ratings"
     for u in await User.findAll()
         if u.cf.login
-            await u.updateCfRating()
-            await User.updateUser(u._id, {})
+            try
+                if await u.updateCfRating()
+                    await User.updateUser(u._id, {})
+            catch e
+                logger.warn("Error while updating cf: ", e.message || e, e.stack)
             await sleep(500)  # don't hit CF request limit
     logger.info "Updated cf ratings"
 
@@ -245,6 +344,21 @@ usersSchema.statics.updateAllGraduateYears = () ->
             promises.push(u.updateGraduateYear())
     await awaitAll promises
     logger.info "Updated graduateYear"
+
+usersSchema.statics.makeTeamName = (name, members) ->
+    if members.length == 0
+        return name
+    name = name.split(":")[0]
+    memberNames = []
+    for m in members
+        memberUser = await User.findById(m)
+        names = memberUser.name.split(" ")
+        memberNames.push names[names.length - 1]
+    memberNames.sort()
+    name += ": " + memberNames.join(", ")
+    now = new Date() 
+    name += " (" + new Date(now - 9 * 30 * 24 * 60 * 60 * 1000).getFullYear() + ")"
+    return name
 
 usersSchema.index
     dormant: 1
@@ -260,6 +374,12 @@ usersSchema.index
 usersSchema.index
     achieves: 1
     ratingSort: -1
+
+usersSchema.index
+    telegram: 1
+
+usersSchema.index
+    members: 1
 
 User = mongoose.model('Users', usersSchema);
 

@@ -26,7 +26,8 @@ InternalLink = (props) ->
     </div>
 
 MaterialLink = (props) ->
-    <div className={props.className && styles[props.className]}>
+    <div className={if props.className then styles[props.className]}>
+        {props.head && <><FontAwesome name={props.head}/> </>}
         <Link to={"/material/" + props.material._id}>{props.material.title}</Link>
     </div>
 
@@ -42,7 +43,7 @@ Material = (props) ->
         when 'pdf' then `<ExternalLink head="file-pdf-o" {...props}/>`
         when 'image' then `<ExternalLink head="picture-o" {...props}/>`
         when 'link' then `<ExternalLink head="external-link" {...props}/>`
-        when 'contest' then `<MaterialLink {...props}/>`
+        when 'contest' then `<MaterialLink head="keyboard-o" {...props}/>`
         when 'level' then `<SubLevel {...props}/>`
         when 'simpleLevel' then `<SubLevel {...props}/>`
         when 'topic' then `<SubLevel {...props} noLink={true}/>`
@@ -70,7 +71,7 @@ export default Level = (props) ->
             a <ProblemListWrapped problems={problems} key={"problems::pre-" + m._id}/>
             problems = []
         a(<div key={m._id + ":" + m.type}>
-            <div className = {props.material.type == 'topic' && styles.bigText}>
+            <div className = {if props.material.type == 'topic' then styles.bigText}>
                 <Material material={m} simple={props.simple}/>
             </div>
         </div>)

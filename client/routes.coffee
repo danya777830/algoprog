@@ -8,24 +8,32 @@ import {
 
 import AchievesPage from './pages/AchievesPage'
 import AllCommentsPage from './pages/AllCommentsPage'
-import UserBadgePage from './pages/UserBadgePage'
-import FullUserPage from './pages/FullUserPage'
-import DashboardPage from './pages/DashboardPage'
+import ApproveFindMistakePage from './pages/ApproveFindMistakePage'
 import CheckinsPage from './pages/CheckinsPage'
-import TablePage from './pages/TablePage'
-import MaterialPage from './pages/MaterialPage'
-import SolvedByWeekPage from './pages/SolvedByWeekPage'
-import SubmitPage from './pages/SubmitPage'
-import ReviewResultPage from './pages/ReviewResultPage'
-import RootPage from './pages/RootPage'
+import DashboardPage from './pages/DashboardPage'
+import EditUserPage from './pages/EditUserPage'
+import EvocaPaymentSuccess from './components/EvocaPaymentSuccess'
+import Invoice from './components/Invoice'
+import FindMistakeListPage from './pages/FindMistakeListPage'
+import FindMistakeProblemListPage from './pages/FindMistakeProblemListPage'
+import FindMistakePage from './pages/FindMistakePage'
 import FullNewsPage from './pages/FullNewsPage'
-import ReviewPage from './pages/ReviewPage'
+import FullUserPage from './pages/FullUserPage'
+import AllSubmitsPage from './pages/AllSubmitsPage'
+import LoginPage from './pages/LoginPage'
+import MaterialPage from './pages/MaterialPage'
 import PaymentPage from './pages/PaymentPage'
 import PaymentSuccessPage from './pages/PaymentSuccessPage'
-import RegisteredUsersPage from './pages/RegisteredUsersPage'
 import RegisterPage from './pages/RegisterPage'
+import RegisteredUsersPage from './pages/RegisteredUsersPage'
+import ReviewPage from './pages/ReviewPage'
+import ReviewResultPage from './pages/ReviewResultPage'
+import RootPage from './pages/RootPage'
+import SolvedByWeekPage from './pages/SolvedByWeekPage'
+import SubmitPage from './pages/SubmitPage'
+import TablePage from './pages/TablePage'
+import UserBadgePage from './pages/UserBadgePage'
 import UsersWithAchievePage from './pages/UsersWithAchievePage'
-import LoginPage from './pages/LoginPage'
 
 class NoMatch extends React.Component
     render: () ->
@@ -35,120 +43,137 @@ class PayPage extends React.Component
     render: () ->
         return <Redirect to="/material/pay" />
 
-export default [
+BASE_ROUTES = [
     {
         path: '/userBadge/:id',
-        key: "userBadge",
         component: UserBadgePage,
     },
     {
         path: '/user/:id',
-        key: "user",
         component: FullUserPage,
     },
     {
+        path: '/edituser/:id',
+        component: EditUserPage,
+    },
+    {
         path: '/table/:userList/:id',
-        key: "table",
         component: TablePage
     },
     {
         path: '/dashboard',
-        key: "dashboard",
         component: DashboardPage,
     },
     {
         path: '/checkins',
-        key: "checkins",
         component: CheckinsPage,
     },
     {
         path: '/review',
-        key: "review",
         component: ReviewPage,
     },
     {
+        path: '/approveFindMistake',
+        component: ApproveFindMistakePage,
+    },
+    {
         path: '/solvedByWeek/:userList',
-        key: "solvedByWeek",
         component: SolvedByWeekPage,
     },
     {
         path: '/material/:id',
-        key: "material",
         component: MaterialPage,
     },
     {
         path: '/submit/:id',
-        key: "submit",
         component: SubmitPage,
     },
     {
         path: '/reviewResult/:id',
-        key: "reviewResult",
         component: ReviewResultPage,
     },
     {
+        path: '/findMistake/:id',
+        component: FindMistakePage,
+    },
+    {
+        path: '/findMistakeProblem/:problemId',
+        component: FindMistakeProblemListPage,
+    },
+    {
+        path: '/findMistakeList',
+        component: FindMistakeListPage,
+    },
+    {
         path: '/news',
-        key: "news",
         component: FullNewsPage,
     },
     {
         path: '/pay',
-        key: "pay",
         component: PayPage,
     },
     {
         path: '/payment',
-        key: "payment",
         component: PaymentPage,
     },
     {
         path: '/paymentSuccess',
-        key: "paymentSuccess",
         component: PaymentSuccessPage,
     },
     {
+        path: '/evocaPaymentSuccess',
+        component: EvocaPaymentSuccess,
+    },
+    {
+        path: '/invoice/:orderId',
+        component: Invoice,
+    },
+    {
         path: '/registeredUsers',
-        key: "registeredUsers",
         component: RegisteredUsersPage,
     },
     {
         path: '/achieves',
-        key: "achieves",
         component: AchievesPage,
     },
     {
         path: '/comments',
-        key: "comments",
         component: AllCommentsPage,
     },
     {
+        path: '/submitsList/:id',
+        component: AllSubmitsPage,
+    },
+    {
         path: '/usersWithAchieve/:achieve',
-        key: "usersWithAchieve",
         component: UsersWithAchievePage,
     },
     {
         path: '/login',
-        key: "login",
         component: LoginPage,
     },
     {
         path: '/register',
-        key: "register",
         component: RegisterPage,
     },
     {
         path: '/stud',
-        key: "/stud",
         component: RootPage,
     },
     {
         path: '/',
-        key: "/",
         exact: true,
         component: RootPage,
     },
     {
         component: NoMatch,
-        key: "nomatch"
     },
 ]
+
+export default routes = BASE_ROUTES.map((route) => {
+        path: if route.path then [route.path, "(.*)https/algoprog.ru" + route.path] else route.path
+        key: route.path || "-"
+        component: route.component
+        exact: route.exact
+    }
+)

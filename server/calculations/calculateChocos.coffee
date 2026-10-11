@@ -9,7 +9,7 @@ class FullContestChocoCalculator
     processContest: (contest) ->
         full = true
         for p in contest
-            if not p or p.solved == 0
+            if not p or p.solved <= 0
                 full = false
         if full
             @fullContests++
@@ -30,7 +30,7 @@ class CleanContestChocoCalculator
     processContest: (contest) ->
         clean = true
         for p in contest
-            if not p or (p.attempts > 0) or (p.solved == 0)
+            if not p or (p.attempts > 0) or (p.solved <= 0)
                 clean = false
         if clean
             @cleanContests++
@@ -46,9 +46,9 @@ class HalfCleanContestChocoCalculator
         clean = true
         half = true
         for p in contest
-            if not p or (p.attempts > 0) or (p.solved == 0)
+            if not p or (p.attempts > 0) or (p.solved <= 0)
                 clean = false
-            if not p or (p.attempts > 1) or (p.solved == 0)
+            if not p or (p.attempts > 1) or (p.solved <= 0)
                 half = false
         if half and (not clean)
             @hcleanContests++
@@ -57,10 +57,16 @@ class HalfCleanContestChocoCalculator
         @hcleanContests // 2
         
 export default calculateChocos = (userId) ->
+    start = new Date()
+    logger.info "calculateChocos ", userId
     chocoCalcs = [new FullContestChocoCalculator(), new CleanContestChocoCalculator(), new HalfCleanContestChocoCalculator()]
     tables = await Table.find({})
     for table in tables
         if table.problems.length == 0  # not a single contest
+            continue
+        tableResult = await Result.findByUserAndTable(userId, table._id)
+        if not tableResult
+            # this may be a wrong lang
             continue
         results = []
         for problem in table.problems
@@ -70,4 +76,5 @@ export default calculateChocos = (userId) ->
     res = []
     for calc in chocoCalcs
         res.push(calc.chocos())
+    logger.info "calculated chocos ", userId, " spent time ", (new Date()) - start
     return res

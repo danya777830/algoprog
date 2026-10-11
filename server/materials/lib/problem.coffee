@@ -20,15 +20,17 @@ class Problem
         @testSystemData = testSystemObject.getProblemData(@options)
         @testSystemData.system = @testSystem
 
-    download: () ->
+    download: (label) ->
         testSystem = getTestSystem(@testSystem)
-        return await testSystem.downloadProblem(@options)
+        return await testSystem.downloadProblem(@options, label)
 
-    build: (context) ->
-        id = "p#{@id}"
+    build: (context, order) ->
+        if @options.onlyForLabel and not (context.label in @options.onlyForLabel)
+            return null
+        id = "p#{@id}#{context.label}"
         material = await Material.findById(id)
         if not material
-            {name, text} = await @download()
+            {name, text} = await @download(context.label)
         else
             name = material.title
             text = material.content
@@ -38,6 +40,7 @@ class Problem
             title: name,
             content: text,
             testSystemData: @testSystemData
+            order: order
 
         await context.process(data)
         

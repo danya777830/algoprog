@@ -5,6 +5,7 @@ import User from './user'
 
 import calculateHashes from '../hashes/calculateHashes'
 import normalizeCode from '../lib/normalizeCode'
+import {runMongooseCallback} from '../mongo/MongooseCallbackManager'
 
 import awaitAll from '../../client/lib/awaitAll'
 import logger from '../log'
@@ -14,6 +15,8 @@ outcomeType = (outcome) ->
         when "DR" then "DR"
         when "PS" then "PS"
         else "_"
+
+SUBMITS_PER_PAGE = 20
 
 submitsSchema = new mongoose.Schema
     _id: String
@@ -26,15 +29,17 @@ submitsSchema = new mongoose.Schema
     source: String
     sourceRaw: String
     language: String
-    comments: [String]
+    comments: [mongoose.Schema.Types.Mixed]
     results: mongoose.Schema.Types.Mixed
     force: { type: Boolean, default: false },
     quality: { type: Number, default: 0 },
     hashes: [{window: Number, hash: String, score: Number}]
     testSystemData: mongoose.Schema.Types.Mixed
+    findMistake: String
     
 submitsSchema.methods.upsert = () ->
-    @update(this, {upsert: true, overwrite: true})
+    await @update(this, {upsert: true, overwrite: true})
+    runMongooseCallback 'update_submit', @user
 
 submitsSchema.methods.calculateHashes = () ->
     logger.info("calculating hashes for submit #{@_id}")
@@ -61,6 +66,8 @@ submitsSchema.methods.equivalent = (other) ->
         return false
     if @outcome == "AC" or @outcome == "IG" or @outcome == "DQ"
         return false
+    if other.outcome == "DP" or other.outcome == "PW"
+        return false
     if @force
         return false
     otherCodes = [normalizeCode(other.source), normalizeCode(other.sourceRaw)]
@@ -75,8 +82,13 @@ submitsSchema.methods.equivalent = (other) ->
 submitsSchema.statics.findByUser = (userId) ->
     Submit.find
         user: userId
+        findMistake: null
 
-submitsSchema.statics.findByUserAndDay = (userId, day) ->
+submitsSchema.statics.findByUserWithFindMistakeAny = (userId) ->
+    Submit.find
+        user: userId
+
+submitsSchema.statics.findByUserAndDayWithFindMistakeAny = (userId, day) ->
     date = new Date(Date.parse(day))
     start = new Date(date)
     end = new Date(date)
@@ -90,12 +102,47 @@ submitsSchema.statics.findByUserAndProblem = (userId, problemId) ->
     Submit.find({
         user: userId
         problem: problemId
+        findMistake: null
+    }).sort({time: 1})
+
+submitsSchema.statics.findByUserAndProblemWithFindMistakeSet = (userId, problemId) ->
+    Submit.find({
+        user: userId
+        problem: problemId
+        findMistake: {$ne: null}
+    }).sort({time: 1})
+
+submitsSchema.statics.findByUserAndProblemWithFindMistakeAny = (userId, problemId) ->
+    Submit.find({
+        user: userId
+        problem: problemId
+    }).sort({time: 1})
+
+submitsSchema.statics.findByUserAndPage = (userId, page) ->
+    return await Submit.find({
+        user: userId
+        findMistake: null
+    }).skip(page * SUBMITS_PER_PAGE).sort({time: 1}).limit(SUBMITS_PER_PAGE)
+
+submitsSchema.statics.findPagesCountByUser = (userId) -> 
+    return
+        pagesCount: Math.ceil(await Submit.find({
+            user: userId,
+            findMistake: null
+        }).countDocuments() / SUBMITS_PER_PAGE)
+        submitsPerPage: SUBMITS_PER_PAGE
+
+submitsSchema.statics.findByUserAndFindMistake = (userId, findMistakeId) ->
+    Submit.find({
+        user: userId
+        findMistake: findMistakeId
     }).sort({time: 1})
 
 submitsSchema.statics.findBestByProblem = (problemId, limit) ->
     Submit.find({
         problem: problemId,
         quality: {$gt: 0}
+        findMistake: null
     })
         .sort({quality: -1, time: -1})
         .select({results: 0, comments: 0, force: 0})
@@ -131,7 +178,8 @@ submitsSchema.statics.calculateAllHashes = () ->
         logger.info("Calculated all hashes for user #{userI} / #{users.length}")
     logger.info("Calculated all hashes for all users")
 
-submitsSchema.index({ user : 1, problem: 1, time: 1 })
+submitsSchema.index({ user : 1, problem: 1, findMistake: 1, time: 1 })
+submitsSchema.index({ user : 1, findMistake: 1, time: 1 })
 submitsSchema.index({ user : 1, problem: 1, outcome: 1 })
 submitsSchema.index({ outcome : 1, time : 1 })
 submitsSchema.index({ time : 1 })

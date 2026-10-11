@@ -11,6 +11,7 @@ materialsSchema = new mongoose.Schema
     materials: [mongoose.Schema.Types.Mixed]  # will always be an array of dictionaries
     force: { type: Boolean, default: false }
     testSystemData: mongoose.Schema.Types.Mixed
+    order: String
     
 
 materialsSchema.methods.upsert = () ->
@@ -19,6 +20,10 @@ materialsSchema.methods.upsert = () ->
         @update(this, {upsert: true})
     catch
         logger.info "Could not upsert a material"
+
+materialsSchema.statics.findByType = (type) ->
+    Material.find
+        type: type
 
 Material = mongoose.model('Materials', materialsSchema);
 

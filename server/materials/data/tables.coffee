@@ -1,8 +1,14 @@
+import GROUPS from '../../../client/lib/groups'
+
 import table from '../lib/table'
 import simpleLevel from '../lib/simpleLevel'
 
 getTableTitle = (table) ->
-    if table == "reg"
+    if table == "sch"
+        return "Сводная таблица по школьным олимпиадам"
+    else if table == "nnoi"
+        return "Сводная таблица по нижегородским олимпиадам"
+    else if table == "reg"
         return "Сводная таблица по региональным олимпиадам"
     else if table == "roi"
         return "Сводная таблица по всероссийским олимпиадам"
@@ -17,7 +23,11 @@ getTableTitle = (table) ->
         return "Сводная таблица по уровням " + tables.join(", ")
 
 getTreeTitle = (table) ->
-    if table == "reg"
+    if table == "sch"
+        return "Школьные олимпиады"
+    else if table == "nnoi"
+        return "Нижегородские олимпиады"
+    else if table == "reg"
         return "Региональные олимпиады"
     else if table == "roi"
         return "Всероссийские олимпиады"
@@ -31,20 +41,16 @@ getTreeTitle = (table) ->
     else
         return "Уровни " + tables.join(", ")
 
-export default tables = () ->
-    groups =
-        lic40: "Лицей 40",
-        lic87: "Лицей 87",
-        zaoch: "Нижегородские школьники",
-        vega: "Вега",
-        notnnov: "Остальные школьники"
-        stud: "Студенты и старше"
-    allTables = ["1А,1Б", "1В,1Г", "2", "3", "4", "5", "6", "7", "8", "9", "main", "reg", "roi", "byWeek"]
+export allTables = ["1А,1Б", "1В,1Г", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "main", "sch", "nnoi", "reg", "roi"]
 
+export default tables = () ->
     materials = []
-    for group, groupName of groups
+    for group, data of GROUPS
+        if not data.tableName
+            continue
+        groupName = data.tableName
         thisMaterials = []
-        for t in allTables
+        for t in [allTables... , "byWeek"]
             thisMaterials.push(table(group, t, getTableTitle(t), getTreeTitle(t)))
 
         material = simpleLevel("tables:#{group}", groupName, thisMaterials)

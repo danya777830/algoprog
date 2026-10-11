@@ -1,36 +1,50 @@
+import awaitAll from '../../client/lib/awaitAll'
+import stripLabel from '../../client/lib/stripLabel'
+
 import logger from '../log'
+import FindMistake from '../models/FindMistake'
 import Material from '../models/Material'
 import Problem from '../models/problem'
 import Table from '../models/table'
 
 import root from './data/root'
+import rootEn from './data-en/root'
 
 
 clone = (material) ->
     JSON.parse(JSON.stringify(material))
 
+correctLabel = (label) ->
+    if label != ""
+        "!#{label}"
+    else
+        ""
 
 class Context
-    constructor: (@processors) ->
+    constructor: (@processors, @label="") ->
         @pathToId = {}
         @path = []
+        @label = correctLabel(@label)
 
     generateId: () ->
         if @path.length
-            pathItem = @path[@path.length - 1]._id + "."
+            pathItem = @path[@path.length - 1]._id
+            if pathItem.endsWith(@label)
+                pathItem = pathItem.substring(0, pathItem.length - @label.length)
+            pathItem = pathItem + "."
         else
             pathItem = ""
         if not (pathItem of @pathToId)
             @pathToId[pathItem] = 0
         @pathToId[pathItem]++
-        return "#{pathItem}#{@pathToId[pathItem]}"
+        return "#{pathItem}#{@pathToId[pathItem]}#{@label}"
 
-    pushPath: (id, title, type) ->
+    pushPath: (id, order, title, type) ->
         @path.push
             _id: id
             title: title
         for processor in @processors
-            processor.pushPath?(id, title, type)
+            processor.pushPath?(id, order, title, type)
 
     popPath: (id) ->
         @path.pop(id)
@@ -40,7 +54,6 @@ class Context
     process: (material) ->
         oldMaterial = await Material.findById(material._id)
         if oldMaterial?.force
-            logger.info("Will not overwrite forced material #{material._id}")
             material.content = oldMaterial.content
             material.title = oldMaterial.title
             material.force = oldMaterial.force
@@ -51,7 +64,13 @@ class Context
 
 
 class SaveProcessor
+    constructor: () ->
+        @ids = {}
+
     process: (material) ->
+        if (material._id of @ids) and (material.type != "problem")
+            throw "Duplicate material id found: #{material._id}"
+        @ids[material._id] = 1
         material = clone(material)
         newSubmaterials = []
         inProblems = false
@@ -77,6 +96,18 @@ class SaveProcessor
         delete material.treeTitle
         await (new Material(material)).upsert()
 
+class FindMistakeProcessor
+    process: (material) ->
+        if material.type != "problem"
+            return
+        mistakes = await FindMistake.findByProblem(material._id)
+        promises = []
+        for fm in mistakes
+            if fm.order == material.order
+                continue
+            fm.order = material.order
+            promises.push fm.update(fm)  # do not await
+        await awaitAll promises
 
 class ContestProcessor
     constructor: () ->
@@ -88,16 +119,17 @@ class ContestProcessor
     level: () ->
         @path[@path.length - 1]
 
-    pushPath: (id, title, type) ->
+    pushPath: (id, order, title, type) ->
         if type != "level" and type != "main"
             return
         if @level()
             @tables[@level()].tables.push(id)
         @tables[id] = new Table
             _id: id
-            name: id
+            name: stripLabel(id)
             tables: []
             parent: @level()
+            order: order
         @path.push id
 
     popPath: (id) ->
@@ -117,6 +149,7 @@ class ContestProcessor
     process: (material) ->
         id = material._id
         if material.type == "problem"
+            id = stripLabel(id)
             if not (id of @problems)
                 @problems[id] = new Problem
                     _id: material._id,
@@ -124,15 +157,17 @@ class ContestProcessor
                     level: ""
                     tables: []
                     testSystemData: material.testSystemData
+                    order: material.order
         else if material.type == "contest" or material.type == "topic"
-            problemIds = (m._id for m in material.materials when m.type == "problem")
+            problemIds = (stripLabel(m._id) for m in material.materials when m.type == "problem")
             if problemIds.length == 0
                 return
             @tables[id] = new Table
                 _id: id
-                name: material.treeTitle || material.title
+                name: stripLabel(@level()) + ": " + (material.treeTitle || material.title)
                 problems: problemIds
                 parent: @level()
+                order: material.order
             for pid in problemIds
                 @problems[pid].tables.push(id)
                 if @problems[pid].level < @level()
@@ -160,7 +195,7 @@ class TreeProcessor
         @trees[id] = material
 
     makeTree: (material) ->
-        if material.type in ["label", "epigraph", "link"] and material.content != "/comments"
+        if material.type in ["label", "epigraph", "link"] and material.content != "/comments" and material.content != "/findMistakeList"
             return null
         if material.treeTitle == null
             return null
@@ -187,12 +222,9 @@ class TreeProcessor
         @setTree(id, material)
 
 
-export default downloadMaterials = () ->
-    logger.info "Start downloadMaterials"
-    saveProcessor = new SaveProcessor()
+downloadRussian = (processors) ->
     treeProcessor = new TreeProcessor()
-    contestProcessor = new ContestProcessor
-    context = new Context([saveProcessor, treeProcessor, contestProcessor])
+    context = new Context(processors.concat(treeProcessor))
 
     await root()().build(context)
 
@@ -200,6 +232,26 @@ export default downloadMaterials = () ->
     tree._id = "tree"
     await (new Material(tree)).upsert()
 
+downloadEnglish = (processors) ->
+    treeProcessor = new TreeProcessor()
+    context = new Context(processors.concat(treeProcessor), "en")
+
+    await rootEn()().build(context)
+
+    tree = treeProcessor.getTree("main!en")
+    tree._id = "tree!en"
+    await (new Material(tree)).upsert()
+
+
+export default downloadMaterials = () ->
+    contestProcessor = new ContestProcessor()
+    processors = [new SaveProcessor(),
+        contestProcessor,
+        new FindMistakeProcessor()]
+
+    logger.info "Start downloadMaterials"
+    await downloadRussian(processors)
+    await downloadEnglish(processors)
     await contestProcessor.finalize()
     logger.info "Done downloadMaterials"
 

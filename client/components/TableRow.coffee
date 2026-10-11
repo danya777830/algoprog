@@ -1,12 +1,33 @@
 React = require('react')
+FontAwesome = require('react-fontawesome')
+
+import {LangRaw} from '../lang/lang'
+
+import addTotal from '../lib/addTotal'
+import withLang from '../lib/withLang'
+import withTheme from '../lib/withTheme'
+
+import userTableHeader from './UserTableHeader'
 
 import styles from './TableRow.css'
 import globalStyles from './global.css'
 
-import userTableHeader from './UserTableHeader'
-
-import addTotal from '../lib/addTotal'
-import withTheme from '../lib/withTheme'
+SubFindMistakes = withLang (props) ->
+    if not props.subFindMistakes
+        return null
+    sfm = props.subFindMistakes
+    res = []
+    a = (el) -> res.push(el)
+    for i in [0...sfm.none]
+        a <FontAwesome name="star-o"/>
+    for i in [0...sfm.wa]
+        a <FontAwesome name="star-half-o"/>
+    for i in [0...sfm.ok]
+        a <FontAwesome name="star"/>
+    title = LangRaw("find_mistake_table_explanation", props.lang)(sfm.none, sfm.wa, sfm.ok)
+    <div className={styles.subFindMistakes} title={title}>
+        {res}
+    </div>        
 
 ProblemResult = (props) ->
     r = props.result
@@ -49,7 +70,7 @@ ProblemResult = (props) ->
     ctrlDbClickUrl = "/reviewResult/#{props.user._id}::#{r.table}"
 
     dbClickHandler = (event) ->
-        if event.ctrlKey
+        if event.ctrlKey or event.metaKey
             window.goto(ctrlDbClickUrl)()
         else
             window.goto(dbClickUrl)()
@@ -57,18 +78,20 @@ ProblemResult = (props) ->
 
     <td title={props.user.name + " : " + props.result.problemName} className={className + " " + styles.res + " " + globalStyles.mainTable_td} onDoubleClick={dbClickHandler}>
         {text}
+        <SubFindMistakes subFindMistakes={r.subFindMistakes}/>
     </td>
 
 totalResultClass = (result) ->
-    if not result.problemName
+    if not result?.problemName
         return undefined
     if result.total == result.solved
         return "full"
     else
         needed = result.required
-        if result.problemName.slice(-1) == "В"
+        letter = result.problemName.slice(-1)
+        if letter == "В" || letter == "C"
             needed = Math.ceil(needed / 2)
-        else if result.problemName.slice(-1) == "Г"
+        else if letter == "Г" || letter == "D"
             needed = Math.ceil(needed / 3)
         if result.solved >= needed
             return "done"
@@ -81,6 +104,8 @@ TotalResult = (props) ->
     style = globalStyles.mainTable_td
     title = ""
     if not props.header
+        if not props.result
+            return "??"
         s = totalResultClass(props.result)
         if s
             style += " " + styles[s]
@@ -104,12 +129,12 @@ Result = (props) ->
     else
         `<ResultTheme {...props}/>`
 
-Attempts = (props) ->
+Attempts = withLang (props) ->
     return <td className={globalStyles.mainTable_td}>
-        {if props.header then "Попыток" else props.result.attempts}
+        {if props.header then LangRaw("attempts", props.lang) else props.result.attempts}
     </td>
 
-export default TableRow = (props) ->
+export default TableRow = withLang (props) ->
     total = undefined
     h = props.header
     return <tr>
@@ -121,9 +146,10 @@ export default TableRow = (props) ->
             for table in props.results
                 subTotal = null
                 for subtable in table.results
-                    a <td className={globalStyles.border} key={subtable._id + "b"}/>
+                    if res.length
+                        a <td className={globalStyles.border} key={subtable._id + "b"}/>
                     if props.header
-                        a <td className={globalStyles.mainTable_td} colSpan={subtable.colspan}  key={subtable._id + "c"}>
+                        a <td className={globalStyles.mainTable_td + " " + styles.subtableHeader} colSpan={subtable.colspan}  key={subtable._id + "c"}>
                             {subtable.name}
                         </td>
                     else
